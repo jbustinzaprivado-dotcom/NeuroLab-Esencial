@@ -1,0 +1,11 @@
+# Versiones fijas, iguales a las probadas en el sistema completo de NeuroLab Enterprise.
+fastapi==0.162.0
+uvicorn==0.54.0
+sqlalchemy==2.1.6
+pydantic==2.14.2
+PyJWT==2.10.1
+python-multipart==0.0.33
+numpy==2.5.4
+tensorflow==2.21.0
+keras==3.15.1
+h5py==3.14.0

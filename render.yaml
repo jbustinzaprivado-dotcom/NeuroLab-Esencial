@@ -1,0 +1,15 @@
+# Blueprint de Render: un solo servicio web gratuito (512 MB, 0,1 CPU).
+# Se duerme tras 15 min sin visitas; la primera visita después tarda ~1 min.
+services:
+  - type: web
+    name: neurolab-esencial
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/v1/health
+    autoDeploy: true
+    envVars:
+      - key: NEUROLAB_SECRET_KEY
+        generateValue: true
+      - key: NEUROLAB_DEMO_PASSWORD
+        value: neurolab2026
