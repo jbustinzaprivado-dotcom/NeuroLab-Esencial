@@ -118,6 +118,9 @@ export function JobPage() {
             <div><dt>Dataset</dt><dd>{j.dataset.name} · SHA-256 {j.dataset.checksum.slice(0, 12)}…</dd></div>
             <div><dt>Arquitectura</dt><dd>{j.architecture.name} v{j.architecture.version}</dd></div>
             <div><dt>Parámetros</dt><dd>{j.params.epochs} épocas · lote {j.params.batch_size} · {j.params.optimizer} · tasa {j.params.learning_rate} · semilla {j.params.seed}</dd></div>
+            {j.params.task === 'classification' ? (
+              <div><dt>Peso de clases / umbral</dt><dd>{j.params.class_weight === 'balanced' ? 'balanceado' : 'igual para todas'}{j.params.threshold != null ? ` · umbral ${Math.round(j.params.threshold * 100)} %` : ''}</dd></div>
+            ) : null}
             <div><dt>Particiones</dt><dd>70 % entrenamiento · 15 % validación · 15 % prueba</dd></div>
             <div><dt>Versión de código</dt><dd>{j.params.codeVersion}</dd></div>
             <div><dt>Encolado / fin</dt><dd>{formatDate(j.createdAt)} → {formatDate(j.endedAt)}</dd></div>
@@ -144,22 +147,66 @@ function Results({ job }: { job: Job }) {
     );
   }
   const c = m as ClassMetrics;
+  if (c.scores && c.positiveClass) return <BinaryResults metrics={c} />;
   return (
     <Panel title="Evaluación final con datos de prueba" subtitle={`${c.testRows} filas que la red nunca vio · exactitud ${(c.accuracy * 100).toFixed(1)} %`}>
+      <Matrix classes={c.classes} confusion={c.confusion} />
+    </Panel>
+  );
+}
+
+function Matrix({ classes, confusion }: { classes: string[]; confusion: number[][] }) {
+  return (
+    <>
       <p className="small muted">Matriz de confusión: filas = clase real, columnas = lo que predijo la red. La diagonal son los aciertos.</p>
       <div className="table-wrap">
         <table className="table table--matrix">
-          <thead><tr><th>Real \ Predicha</th>{c.classes.map((label) => <th key={label}>{label}</th>)}</tr></thead>
+          <thead><tr><th>Real \ Predicha</th>{classes.map((label) => <th key={label}>{label}</th>)}</tr></thead>
           <tbody>
-            {c.confusion.map((row, i) => (
-              <tr key={c.classes[i]}>
-                <th>{c.classes[i]}</th>
+            {confusion.map((row, i) => (
+              <tr key={classes[i]}>
+                <th>{classes[i]}</th>
                 {row.map((value, k) => <td key={k} className={i === k ? 'is-hit' : value ? 'is-miss' : ''}>{value}</td>)}
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+    </>
+  );
+}
+
+/** Binaria: indicadores de negocio y un control para probar otro umbral sobre las mismas predicciones. */
+function BinaryResults({ metrics }: { metrics: ClassMetrics }) {
+  const trained = metrics.threshold ?? 0.5;
+  const [cut, setCut] = useState(trained);
+  const scores = metrics.scores!;
+  const positive = metrics.positiveClass!;
+  const negative = metrics.classes[0];
+  const matrix = useMemo(() => {
+    const m = [[0, 0], [0, 0]];
+    for (const [real, score] of scores) m[real][score >= cut ? 1 : 0] += 1;
+    return m;
+  }, [scores, cut]);
+  const [[tn, fp], [fn, tp]] = matrix;
+  const pct = (a: number, b: number) => (b ? `${Math.round((a / b) * 100)} %` : '—');
+  return (
+    <Panel title="Evaluación final con datos de prueba" subtitle={`${scores.length} filas que la red nunca vio · entrenado con umbral ${Math.round(trained * 100)} %`}>
+      <div className="kpis">
+        <div className="kpi"><span>Detecta «{positive}»</span><strong>{tp} de {tp + fn}</strong><small>{pct(tp, tp + fn)} de los casos reales (recall)</small></div>
+        <div className="kpi"><span>Falsas alarmas</span><strong>{fp}</strong><small>de {tn + fp} casos «{negative}»</small></div>
+        <div className="kpi"><span>Cuando avisa, acierta</span><strong>{pct(tp, tp + fp)}</strong><small>precisión de las alertas</small></div>
+        <div className="kpi"><span>Exactitud</span><strong>{pct(tp + tn, scores.length)}</strong><small>aciertos totales</small></div>
+      </div>
+      <label className="threshold">
+        <span>Probar otro umbral: avisar «{positive}» desde <strong>{Math.round(cut * 100)} %</strong> de probabilidad</span>
+        <input type="range" min={0.05} max={0.95} step={0.05} value={cut} onChange={(e) => setCut(Number(e.target.value))} />
+        <small className="muted">
+          Recalcula con las mismas predicciones, sin reentrenar.
+          {Math.abs(cut - trained) > 1e-9 ? <> <button type="button" className="btn btn--ghost btn--sm" onClick={() => setCut(trained)}>Volver a {Math.round(trained * 100)} %</button></> : null}
+        </small>
+      </label>
+      <Matrix classes={metrics.classes} confusion={matrix} />
     </Panel>
   );
 }

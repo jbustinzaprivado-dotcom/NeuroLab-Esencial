@@ -50,7 +50,7 @@ export function NetworkDiagram({ layers }: { layers: LayerShape[] }) {
   const visible = layers.filter((l) => !l.name.startsWith('Dropout'));
   if (visible.length < 2) return null;
   const width = 560, height = 230, maxShown = 8;
-  const columnX = (i: number) => 40 + (i * (width - 80)) / (visible.length - 1);
+  const columnX = (i: number) => 70 + (i * (width - 140)) / (visible.length - 1);
   const nodes = visible.map((layer, i) => {
     const shown = Math.min(layer.units, maxShown);
     return Array.from({ length: shown }, (_, j) => ({ x: columnX(i), y: 30 + ((j + 0.5) * (height - 70)) / shown }));

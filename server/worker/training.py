@@ -132,7 +132,23 @@ def build_model(config: dict, input_width: int, task: str, optimizer: str, learn
     return model
 
 
-def evaluate(model, data: Prepared, task: str) -> dict:
+def class_weights(y_train: np.ndarray, classes: int) -> dict[int, float]:
+    """Pesos "balanceados": cada clase pesa en proporción inversa a su frecuencia.
+
+    Con 25 % de "sí", un error con un "sí" pesa unas 3 veces más que con un "no", así la red
+    deja de ganar puntos diciendo siempre la respuesta mayoritaria.
+    """
+    counts = np.bincount(y_train.astype(int), minlength=classes)
+    total = len(y_train)
+    return {c: float(total / (classes * n)) if n else 0.0 for c, n in enumerate(counts)}
+
+
+def positive_scores(predictions: np.ndarray) -> np.ndarray:
+    """Probabilidad de la clase positiva (la segunda) en clasificación binaria."""
+    return predictions.reshape(-1) if predictions.shape[1] == 1 else predictions[:, 1]
+
+
+def evaluate(model, data: Prepared, task: str, threshold: float | None = None) -> dict:
     predictions = model.predict(data.x_test, verbose=0)
     if task == "regression":
         pred = predictions.reshape(-1) * data.y_std + data.y_mean
@@ -141,10 +157,24 @@ def evaluate(model, data: Prepared, task: str) -> dict:
         ss_res, ss_tot = float((error ** 2).sum()), float(((real - real.mean()) ** 2).sum()) or 1.0
         return {"r2": 1 - ss_res / ss_tot, "mae": float(np.abs(error).mean()),
                 "rmse": float(np.sqrt((error ** 2).mean())), "testRows": int(len(real))}
-    labels = (predictions.reshape(-1) >= 0.5).astype(int) if predictions.shape[1] == 1 else predictions.argmax(1)
+    binary = len(data.classes) == 2
+    extra: dict = {}
+    if binary:
+        # El umbral decide desde qué probabilidad se avisa la clase positiva (0,5 por omisión).
+        cut = 0.5 if threshold is None else threshold
+        scores = positive_scores(predictions)
+        labels = (scores >= cut).astype(int)
+        extra = {
+            "threshold": cut,
+            "positiveClass": data.classes[1],
+            # Real y probabilidad de cada fila de prueba: la pantalla recalcula la matriz con otro umbral sin reentrenar.
+            "scores": [[int(r), round(float(s), 4)] for r, s in zip(data.y_test, scores, strict=True)],
+        }
+    else:
+        labels = predictions.argmax(1)
     size = len(data.classes)
     matrix = np.zeros((size, size), dtype=int)
     for real, pred in zip(data.y_test, labels, strict=True):
         matrix[int(real), int(pred)] += 1
     return {"accuracy": float((labels == data.y_test).mean()), "testRows": int(len(labels)),
-            "classes": data.classes, "confusion": matrix.tolist()}
+            "classes": data.classes, "confusion": matrix.tolist(), **extra}

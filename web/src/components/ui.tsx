@@ -28,7 +28,13 @@ export function ErrorNote({ error }: { error: unknown }) {
 export function mainMetric(job: Job): string {
   const m = job.result.metrics as Record<string, number> | undefined;
   if (!m) return '—';
-  if ('accuracy' in m) return `Exactitud ${(m.accuracy * 100).toFixed(1)} %`;
+  if ('accuracy' in m) {
+    const base = `Exactitud ${(m.accuracy * 100).toFixed(1)} %`;
+    const c = job.result.metrics as unknown as { confusion: number[][]; positiveClass?: string };
+    if (!c.positiveClass) return base;
+    const [, [fn, tp]] = c.confusion;
+    return `${base} · detecta ${tp}/${tp + fn} «${c.positiveClass}»`;
+  }
   if ('r2' in m) return `R² ${m.r2.toFixed(3)}`;
   return '—';
 }

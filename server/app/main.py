@@ -13,6 +13,8 @@ from datetime import datetime
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile, status
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from typing import Literal
+
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
@@ -312,6 +314,10 @@ class TrainingIn(BaseModel):
     learning_rate: float = Field(default=0.01, gt=0, le=1)
     optimizer: str = "adam"
     seed: int = Field(default=42, ge=0, le=2**31 - 1)
+    # Clasificación: "balanced" da más peso a la clase menos frecuente (p. ej. los clientes que sí se van).
+    class_weight: Literal["none", "balanced"] = "none"
+    # Clasificación binaria: probabilidad mínima para avisar la clase positiva.
+    threshold: float = Field(default=0.5, ge=0.05, le=0.95)
 
 
 @app.post(f"{API}/projects/{{project_id}}/training-jobs", status_code=202)
@@ -335,7 +341,11 @@ def launch(project_id: str, payload: TrainingIn, user: User = CurrentUser):
                                               TrainingJob.status.in_(["QUEUED", "PREPARING", "RUNNING"])).count()
         if active >= 2:
             raise HTTPException(429, "Ya tienes 2 entrenamientos activos; espera a que termine alguno.")
-        params = {**payload.model_dump(exclude={"architecture_id"}), "task": summary["task"],
+        binary = summary["task"] == "classification" and summary["classes"] == 2
+        if summary["task"] == "regression":
+            payload.class_weight = "none"
+        params = {**payload.model_dump(exclude={"architecture_id", "threshold"}), "task": summary["task"],
+                  "threshold": payload.threshold if binary else None,
                   "classes": summary["classes"], "split": {"train": 0.7, "validation": 0.15, "test": 0.15},
                   "codeVersion": settings.code_version, "architectureVersion": arch.version}
         job = TrainingJob(project_id=project_id, architecture_id=arch.id, dataset_id=dataset.id,

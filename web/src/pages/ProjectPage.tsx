@@ -278,8 +278,14 @@ function TrainTab({ project }: { project: Project }) {
   const queryClient = useQueryClient();
   const archs = useQuery({ queryKey: ['architectures', project.id], queryFn: () => api<Architecture[]>(`/projects/${project.id}/architectures`) });
   const valid = useMemo(() => (archs.data ?? []).filter((a) => a.summary?.valid), [archs.data]);
-  const [form, setForm] = useState({ architecture_id: '', epochs: 30, batch_size: 16, learning_rate: 0.01, optimizer: 'adam', seed: 42 });
+  const [form, setForm] = useState({
+    architecture_id: '', epochs: 30, batch_size: 16, learning_rate: 0.01, optimizer: 'adam', seed: 42,
+    class_weight: 'none' as 'none' | 'balanced', threshold: 0.5,
+  });
   const chosen = form.architecture_id || valid[0]?.id || '';
+  const summary = valid.find((a) => a.id === chosen)?.summary;
+  const classification = summary?.task === 'classification';
+  const binary = classification && summary?.classes === 2;
 
   const launch = useMutation({
     mutationFn: () => api<Job>(`/projects/${project.id}/training-jobs`, { method: 'POST', json: { ...form, architecture_id: chosen } }),
@@ -305,6 +311,21 @@ function TrainTab({ project }: { project: Project }) {
           </select>
         </label>
         <label className="field"><span>Semilla (misma semilla, mismo resultado)</span><input className="input" type="number" min={0} value={form.seed} onChange={num('seed')} /></label>
+        {classification ? (
+          <label className="field"><span>Peso de las clases</span>
+            <select className="input" value={form.class_weight} onChange={(e) => setForm({ ...form, class_weight: e.target.value as 'none' | 'balanced' })}>
+              <option value="none">Igual para todas</option>
+              <option value="balanced">Balanceado: más peso a la clase menos frecuente</option>
+            </select>
+            <small className="muted">Útil cuando una respuesta es rara (pocos «sí»): la red deja de ignorarla, a cambio de más falsas alarmas.</small>
+          </label>
+        ) : null}
+        {binary ? (
+          <label className="field"><span>Umbral de alerta: {Math.round(form.threshold * 100)} %</span>
+            <input type="range" min={0.05} max={0.95} step={0.05} value={form.threshold} onChange={num('threshold')} />
+            <small className="muted">Desde qué probabilidad se avisa la clase positiva. Más bajo detecta más casos y da más falsas alarmas. Se puede explorar después sin reentrenar.</small>
+          </label>
+        ) : null}
         <div className="field--wide"><ErrorNote error={launch.error} /></div>
         <div className="field--wide"><button className="btn btn--primary" disabled={!chosen || launch.isPending}>{launch.isPending ? 'Encolando…' : 'Entrenar'}</button></div>
       </form>

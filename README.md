@@ -18,8 +18,8 @@ TensorFlow/Keras.
 | **Proyectos** | Crear un proyecto con su problema, tipo de red (Feedforward, RNN, CNN o GAN) y la justificación |
 | **Datos** | Datasets demo (Iris, fuga de clientes, viviendas) o un CSV propio validado (≤ 1 MB, ≤ 5000 filas) |
 | **Arquitectura** | Diseñador de capas Dense/Dropout con validación en el servidor, diagrama de la red, parámetros y versiones |
-| **Entrenar** | Épocas, lote, optimizador, tasa de aprendizaje y semilla; el trabajo va a una cola |
-| **Seguimiento** | Estado (En cola → Preparando → Ejecutando → Completado), curvas y registro en vivo, cancelación |
+| **Entrenar** | Épocas, lote, optimizador, tasa de aprendizaje y semilla; en clasificación, **peso de clases** (balanceado para datos desequilibrados) y, si es binaria, **umbral de alerta**. El trabajo va a una cola |
+| **Seguimiento** | Estado (En cola → Preparando → Ejecutando → Completado), curvas y registro en vivo, cancelación. En clasificación binaria: detección, falsas alarmas, precisión y un control para **probar otro umbral sin reentrenar** |
 | **Historial y modelos** | Cada ejecución con su resultado; cada modelo como versión inmutable con huella SHA-256, descargable |
 
 **Usuarios demo:** `ana.quispe` y `diego.salas`, contraseña `neurolab2026`. Cada uno ve solo sus proyectos.

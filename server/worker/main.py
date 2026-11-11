@@ -109,7 +109,7 @@ def _log(job_id: str, message: str, level: str = "info") -> None:
 def run_job(job_id: str) -> str:
     import keras
 
-    from worker.training import build_model, evaluate, prepare
+    from worker.training import build_model, class_weights, evaluate, prepare
 
     started = time.monotonic()
     try:
@@ -164,8 +164,16 @@ def run_job(job_id: str) -> str:
                 if outcome["stop"]:
                     self.model.stop_training = True
 
+        weights = None
+        if params["task"] == "classification" and params.get("class_weight") == "balanced":
+            weights = class_weights(data.y_train, len(data.classes))
+            shown = ", ".join(f"«{data.classes[c]}» ×{w:.2f}" for c, w in weights.items())
+            _log(job_id, f"Peso de clases balanceado: {shown}.")
+        if params.get("threshold") is not None:
+            _log(job_id, f"Umbral de alerta: avisa «{data.classes[1]}» desde {params['threshold']:.0%} de probabilidad.")
+
         model.fit(data.x_train, data.y_train, validation_data=(data.x_val, data.y_val), epochs=epochs,
-                  batch_size=params["batch_size"], callbacks=[Progress()], verbose=0)
+                  batch_size=params["batch_size"], callbacks=[Progress()], class_weight=weights, verbose=0)
 
         if outcome["stop"]:
             reason = {"cancelled": None, "timeout": f"Superó el límite de {settings.max_job_minutes} min.",
@@ -177,7 +185,7 @@ def run_job(job_id: str) -> str:
                 db.commit()
             return status
 
-        metrics = evaluate(model, data, params["task"])
+        metrics = evaluate(model, data, params["task"], params.get("threshold"))
         _register(job_id, model, data, metrics, arch_name, arch_version, dataset, params)
         return "COMPLETED"
 
@@ -208,14 +216,16 @@ def _register(job_id, model, data, metrics, arch_name, arch_version, dataset, pa
             "jobId": job_id, "projectId": job.project_id, "version": version,
             "architecture": {"name": arch_name, "version": arch_version},
             "dataset": {"id": dataset.id, "name": dataset.name, "checksum": dataset.checksum},
-            "target": job.target, "params": params, "metrics": metrics, "features": data.feature_names,
+            "target": job.target, "params": params,
+            "metrics": {k: v for k, v in metrics.items() if k != "scores"}, "features": data.feature_names,
             "codeVersion": settings.code_version, "trainedBy": job.created_by, "createdAt": utcnow().isoformat(),
         }
         key = f"{job_id}.zip"
         with TemporaryDirectory() as tmp:
             folder = Path(tmp)
             model.save(folder / "model.keras")
-            (folder / "preprocess.json").write_text(json.dumps(data.preprocess, ensure_ascii=False, indent=2))
+            preprocess = {**data.preprocess, "target": {**data.preprocess["target"], "threshold": params.get("threshold")}}
+            (folder / "preprocess.json").write_text(json.dumps(preprocess, ensure_ascii=False, indent=2))
             (folder / "metadata.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2))
             with zipfile.ZipFile(settings.models_dir / key, "w", zipfile.ZIP_DEFLATED) as bundle:
                 for name in ("model.keras", "preprocess.json", "metadata.json"):

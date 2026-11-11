@@ -156,3 +156,47 @@ def test_limites_de_parametros(client, ana):
     too_many = client.post(f"{API}/projects/{project_id}/training-jobs", headers=ana,
                            json={"architecture_id": arch["id"], "epochs": 1000})
     assert too_many.status_code == 422 and "máximo de épocas" in too_many.json()["detail"]
+
+
+def test_peso_balanceado_y_umbral_en_clasificacion_binaria(client, diego):
+    """Peso a la clase minoritaria y umbral de alerta (caso de fuga de clientes)."""
+    project_id = next(p["id"] for p in client.get(f"{API}/projects", headers=diego).json()
+                      if p["name"] == "Riesgo de fuga de clientes")
+    arch = client.get(f"{API}/projects/{project_id}/architectures", headers=diego).json()[0]
+    base = {"architecture_id": arch["id"], "epochs": 30, "batch_size": 32, "learning_rate": 0.005}
+    ids = []
+    for extra in ({}, {"class_weight": "balanced"}, {"threshold": 0.3}):
+        # Uno a la vez: el límite es de 2 entrenamientos activos por usuario.
+        ids.append(client.post(f"{API}/projects/{project_id}/training-jobs", headers=diego, json={**base, **extra}).json()["id"])
+        assert _run_queue() == ["COMPLETED"]
+    plain, balanced, low = (client.get(f"{API}/training-jobs/{i}", headers=diego).json() for i in ids)
+
+    def detected(job):
+        (_, _), (fn, tp) = job["result"]["metrics"]["confusion"]
+        return tp
+
+    # Dar más peso a los «si», o bajar el umbral, detecta más clientes que se van.
+    assert detected(balanced) > detected(plain)
+    assert detected(low) >= detected(plain)
+    assert balanced["params"]["class_weight"] == "balanced" and low["params"]["threshold"] == 0.3
+
+    metrics = low["result"]["metrics"]
+    assert metrics["positiveClass"] == "si" and metrics["threshold"] == 0.3
+    # La matriz guardada coincide con recalcularla desde los puntajes con el mismo umbral.
+    matrix = [[0, 0], [0, 0]]
+    for real, score in metrics["scores"]:
+        matrix[real][int(score >= 0.3)] += 1
+    assert matrix == metrics["confusion"]
+    logs = [e["payload"].get("message", "") for e in client.get(f"{API}/training-jobs/{ids[1]}/history", headers=diego).json()]
+    assert any(line.startswith("Peso de clases balanceado") for line in logs)
+
+
+def test_umbral_no_aplica_en_regresion_ni_multiclase(client, ana):
+    project_id = _project(client, ana)
+    arch = next(a for a in client.get(f"{API}/projects/{project_id}/architectures", headers=ana).json() if a["name"] == "ff-iris")
+    job = client.post(f"{API}/projects/{project_id}/training-jobs", headers=ana,
+                      json={"architecture_id": arch["id"], "epochs": 5, "threshold": 0.3}).json()
+    assert job["params"]["threshold"] is None  # Iris tiene 3 clases: no hay una clase positiva
+    client.post(f"{API}/training-jobs/{job['id']}/cancel", headers=ana, json={})
+    assert client.post(f"{API}/projects/{project_id}/training-jobs", headers=ana,
+                       json={"architecture_id": arch["id"], "threshold": 0.99}).status_code == 422

@@ -16,11 +16,18 @@ export interface Summary {
   inputWidth?: number; layers: LayerShape[]; totalParams: number; expectedOutput?: string;
 }
 export interface Architecture { id: string; name: string; version: number; config: ArchitectureConfig; summary: Summary | null; createdAt: string }
-export interface ClassMetrics { accuracy: number; testRows: number; classes: string[]; confusion: number[][] }
+export interface ClassMetrics {
+  accuracy: number; testRows: number; classes: string[]; confusion: number[][];
+  /** Solo en clasificación binaria: umbral usado, clase positiva y [real, probabilidad] de cada fila de prueba. */
+  threshold?: number; positiveClass?: string; scores?: [number, number][];
+}
 export interface RegressionMetrics { r2: number; mae: number; rmse: number; testRows: number }
 export interface Job {
   id: string; projectId: string; status: JobStatus; statusReason: string | null; progress: number; epoch: number;
-  params: { epochs: number; batch_size: number; learning_rate: number; optimizer: string; seed: number; task: string; classes: number; codeVersion: string; architectureVersion: number };
+  params: {
+    epochs: number; batch_size: number; learning_rate: number; optimizer: string; seed: number; task: string; classes: number;
+    codeVersion: string; architectureVersion: number; class_weight?: 'none' | 'balanced'; threshold?: number | null;
+  };
   target: string; architecture: { id: string; name: string; version: number }; dataset: { id: string; name: string; checksum: string };
   result: { metrics?: ClassMetrics | RegressionMetrics; modelVersion?: number; checksum?: string };
   cancelRequested: boolean; createdAt: string; startedAt: string | null; endedAt: string | null;
